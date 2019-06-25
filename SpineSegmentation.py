@@ -125,10 +125,11 @@ class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
 
     markerTable = slicer.qSlicerSimpleMarkupsWidget()
     self.markerTableSelector = markerTable.MarkupsFiducialNodeComboBox
-    self.markerTableSelector.selectNodeUponCreation = True
+    self.markerTableSelector.selectNodeUponCreation = False
     self.markerTableSelector.addEnabled = True
     self.markerTableSelector.removeEnabled = True
     self.markerTableSelector.noneEnabled = False
+    self.markerTableSelector.renameEnabled = True
     markerTable.setMRMLScene(slicer.mrmlScene)
     markerTable.setCurrentNode(slicer.mrmlScene.GetNodeByID(slicer.modules.markups.logic().AddNewFiducialNode()))
     markerTable.show()
@@ -138,27 +139,27 @@ class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
 
 
 
-    # crop output volume selector
-    self.cropOutputSelector = slicer.qMRMLNodeComboBox()
-    self.cropOutputSelector.nodeTypes = ['vtkMRMLScalarVolumeNode']
-    self.cropOutputSelector.toolTip = "Crop volumes for vertebrae levels"
-    self.cropOutputSelector.setMRMLScene(slicer.mrmlScene)
-    self.cropOutputSelector.renameEnabled = True
-    self.cropOutputSelector.addEnabled = True
-    self.cropOutputSelector.noneEnabled = True
-    self.cropOutputSelector.selectNodeUponCreation = True
-    self.cropOutputSelector.noneDisplay = 'Define name for cropped volume'
-    self.cropOutputSelector.removeEnabled = True
-    self.cropOutputSelector.showHidden = True
-
-
-    cropFormLayout.addRow("Output Crop Volume: ", self.cropOutputSelector)
-
-
-    # crop button
-    cropButton = qt.QPushButton("Crop Vertebrae")
-    cropButton.connect("clicked(bool)", self.onCropButton)
-    cropFormLayout.addRow("Crop Vertebrae", cropButton)
+    # # crop output volume selector
+    # self.cropOutputSelector = slicer.qMRMLNodeComboBox()
+    # self.cropOutputSelector.nodeTypes = ['vtkMRMLScalarVolumeNode']
+    # self.cropOutputSelector.toolTip = "Crop volumes for vertebrae levels"
+    # self.cropOutputSelector.setMRMLScene(slicer.mrmlScene)
+    # self.cropOutputSelector.renameEnabled = True
+    # self.cropOutputSelector.addEnabled = True
+    # self.cropOutputSelector.noneEnabled = True
+    # self.cropOutputSelector.selectNodeUponCreation = True
+    # self.cropOutputSelector.noneDisplay = 'Define name for cropped volume'
+    # self.cropOutputSelector.removeEnabled = True
+    # self.cropOutputSelector.showHidden = True
+    #
+    #
+    # cropFormLayout.addRow("Output Crop Volume: ", self.cropOutputSelector)
+    #
+    #
+    # # crop button
+    # cropButton = qt.QPushButton("Crop Vertebrae")
+    # cropButton.connect("clicked(bool)", self.onCropButton)
+    # cropFormLayout.addRow("Crop Vertebrae", cropButton)
 
 
     # Segment vertebrae button
@@ -174,19 +175,6 @@ class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
     self.layout.addWidget(self.segmentationButton)
 
 
-    # #
-    # # Apply Button
-    # #
-    # self.applyButton = qt.QPushButton("Apply")
-    # self.applyButton.toolTip = "Run the algorithm."
-    # self.applyButton.enabled = False
-    # cropFormLayout.addRow(self.applyButton)
-    #
-    # # connections
-    # self.applyButton.connect('clicked(bool)', self.onApplyButton)
-    # self.inputSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
-    # self.segmentationSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.onSelect)
-
     # Add vertical spacer
     self.layout.addStretch(1)
 
@@ -199,22 +187,11 @@ class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
   def onSelect(self):
     self.segmentationButton.enabled = self.inputSelector.currentNode() and self.markerTableSelector.currentNode()
 
-  def onApplyButton(self):
-    logic = SpineSegmentationLogic()
-    enableScreenshotsFlag = self.enableScreenshotsFlagCheckBox.checked
-    imageThreshold = self.imageThresholdSliderWidget.value
-    logic.run(self.inputSelector.currentNode(), self.segmentationSelector.currentNode(), imageThreshold, enableScreenshotsFlag)
 
   def onSegmentButton(self):
     logic = SpineSegmentationLogic()
     logic.run(self.inputSelector.currentNode(), self.markerTableSelector.currentNode())
 
-  def onMarkerToAdd(self):
-
-    fidList = self.markerTableSelector.currentNode()
-
-    logic = AddMarkerLogic()
-    logic.run(fidList)
 
   def loadVolume(self):
     slicer.util.openAddVolumeDialog()
@@ -230,50 +207,9 @@ class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
     # mode 1 is Place, can also be accessed via slicer.vtkMRMLInteractionNode().Place
     interactionNode.SetCurrentInteractionMode(1)
 
-
-  def onCropButton(self):
-    pass
-#
 # SpineSegmentationLogic
 #
 
-
-class AddMarkerLogic(ScriptedLoadableModuleLogic):
-
-  def run(self, fidList):
-
-    # placeModePersistence = 1
-    # slicer.modules.markups.logic().StartPlaceMode(placeModePersistence)
-
-    selectionNode = slicer.mrmlScene.GetNodeByID("vtkMRMLSelectionNodeSingleton")
-    selectionNode.SetReferenceActivePlaceNodeClassName("vtkMRMLMarkupsFiducialNode")
-    interactionNode = slicer.mrmlScene.GetNodeByID("vtkMRMLInteractionNodeSingleton")
-    placeModePersistence = 1
-    interactionNode.SetPlaceModePersistence(placeModePersistence)
-    # mode 1 is Place, can also be accessed via slicer.vtkMRMLInteractionNode().Place
-    interactionNode.SetCurrentInteractionMode(1)
-
-    # interactionNode = slicer.mrmlScene.GetNodeByID("vtkMRMLInteractionNodeSingleton")
-    # interactionNode.SwitchToViewTransformMode()
-    # # also turn off place mode persistence if required
-    # interactionNode.SetPlaceModePersistence(0)
-
-    # fidList = slicer.util.getNode('F')
-    numFids = fidList.GetNumberOfFiducials()
-    for i in range(numFids):
-      ras = [0, 0, 0]
-      fidList.GetNthFiducialPosition(i, ras)
-      # the world position is the RAS position with any transform matrices applied
-      world = [0, 0, 0, 0]
-      fidList.GetNthFiducialWorldCoordinates(0, world)
-      print(i, ": RAS =", ras, ", world =", world)
-
-    interactionNode = slicer.mrmlScene.GetNodeByID("vtkMRMLInteractionNodeSingleton")
-    interactionNode.SwitchToViewTransformMode()
-    # also turn off place mode persistence if required
-    interactionNode.SetPlaceModePersistence(0)
-
-    return True
 
 class SpineSegmentationLogic(ScriptedLoadableModuleLogic):
   """This class should implement all the actual
@@ -297,10 +233,11 @@ class SpineSegmentationLogic(ScriptedLoadableModuleLogic):
     inputVolume_spacing = inputVolume.GetSpacing()
     inputVolume_size = inputVolume.GetImageData().GetDimensions()
 
+    spine_img = sitkUtils.PullVolumeFromSlicer(inputVolume)
+
+    size_of_bbox = np.ceil(np.array([128, 128, 64]) / np.array(inputVolume_spacing)).astype(np.int)
+
     fiducial_coords_world_hold = [0, 0, 0, 0]
-
-    # fiducialMarker.GetNthFiducialWorldCoordinates(0, fiducial_coords_world_hold)
-
     numFids = fiducialMarker.GetNumberOfFiducials()
 
     for idx in range(numFids):
@@ -313,37 +250,25 @@ class SpineSegmentationLogic(ScriptedLoadableModuleLogic):
       fiducial_coords_world[1] = fiducial_coords_world[1] * (-1)
 
 
-
       # Bounding box is [128, 128, 64] in mm with respect to the world coordinates
-
-
-      spine_img = sitkUtils.PullVolumeFromSlicer(inputVolume)
 
       fiducial_coords = np.floor(spine_img.TransformPhysicalPointToIndex(fiducial_coords_world[:3])).astype(np.int)
 
-
-      size_of_bbox = np.ceil(np.array([128, 128, 64]) / np.array(inputVolume_spacing)).astype(np.int)
-
       ROI = sitk.RegionOfInterestImageFilter()
       ROI.SetSize([int(size_of_bbox[0]), int(size_of_bbox[1]), int(size_of_bbox[2])])
-
       ROI_initial_index = fiducial_coords - size_of_bbox/2
-
+      ROI_initial_index = [roi_idx if roi_idx > 0 else 0 for roi_idx in ROI_initial_index]
       ROI.SetIndex([int(ROI_initial_index[0]), int(ROI_initial_index[1]), int(ROI_initial_index[2])])
 
-      # ( R 27.2, P 52.5, I 250.8)
-      # (225, 275, 150)
 
       spine_img_cropped = ROI.Execute(spine_img)
 
       # Resample cropped spine image
 
       spacingOut = [1.0, 1.0, 1.0]
-
       resample = sitk.ResampleImageFilter()
 
       resample.SetReferenceImage(spine_img_cropped)
-
       resample.SetInterpolator(sitk.sitkLinear)
 
       shapeIn = spine_img_cropped.GetSize()
@@ -369,25 +294,18 @@ class SpineSegmentationLogic(ScriptedLoadableModuleLogic):
       # Get the spine data in a numpy array.
       spine_data = sitk.GetArrayFromImage(spine_img_resampled)
 
-
       y_pred_np = self.segment_vertebrae(spine_data)
 
 
       y_pred_sitk = sitk.GetImageFromArray(y_pred_np)
-
       y_pred_sitk.CopyInformation(spine_img_resampled)
 
-      sitk.WriteImage(spine_img_resampled, 'C:/test.nii')
-      sitk.WriteImage(y_pred_sitk, 'C:/test_seg.nii')
 
       resample_back = sitk.ResampleImageFilter()
-
 
       resample_back.SetReferenceImage(spine_img)
 
 
-      # resample_back.SetSize(spine_img.GetSize())
-      # resample_back.SetOutputSpacing(spine_img.GetSpacing())
       affine = sitk.AffineTransform(3)
 
       resample_back.SetTransform(affine)
@@ -396,13 +314,11 @@ class SpineSegmentationLogic(ScriptedLoadableModuleLogic):
       y_pred_sitk_full_size = resample_back.Execute(y_pred_sitk)
 
 
-      sitk.WriteImage(spine_img, 'C:/test2.nii')
-      sitk.WriteImage(y_pred_sitk_full_size, 'C:/test_seg2.nii')
-
       #self.seg_pred = sitkUtils.PushVolumeToSlicer(y_pred_sitk)
 
-      segVolumeNode = slicer.mrmlScene.AddNewNodeByClass('vtkMRMLLabelMapVolumeNode')
-      self.segVolumeNode = sitkUtils.PushVolumeToSlicer(y_pred_sitk_full_size, segVolumeNode, 'segPrediction')
+      self.segVolumeNode = sitkUtils.PushVolumeToSlicer(y_pred_sitk_full_size,
+                                                        name='segPrediction',
+                                                        className='vtkMRMLLabelMapVolumeNode')
 
 
     return True
