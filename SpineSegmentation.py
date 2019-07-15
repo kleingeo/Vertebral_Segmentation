@@ -342,7 +342,7 @@ class SpineSegmentationLogic(ScriptedLoadableModuleLogic):
                              model_weights_filename,
                              model_json_filename)
 
-    spine_data[spine_data < -1024] = -1024
+    # spine_data[spine_data < -1024] = -1024
     spine_data = (spine_data - spine_data.min()) / (spine_data.max() - spine_data.min()) * 255
 
     x_data = np.expand_dims(np.expand_dims(spine_data, axis=0), axis=-1)
