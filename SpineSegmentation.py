@@ -329,14 +329,14 @@ class SpineSegmentationLogic(ScriptedLoadableModuleLogic):
     model_files_root = ('/').join(hold2[:-1]) + '/SegUtils'
     # model_files_root = 'C:/SlicerExtension/SpineMets/SpineSegmentation/SegUtils'
 
-    training_params_json = model_files_root + '/' + 'training_params_unet_True_True_dsc_True_1_True.json'
+    training_params_json = model_files_root + '/' + 'model_training_params.json'
 
     model_training_params_json = open(training_params_json, 'r')
     training_params = json.load(model_training_params_json)
 
-    model_weights_filename = model_files_root + '/' + 'unet_True_True_dsc_True_1_True_200_weights.h5'
+    model_weights_filename = model_files_root + '/' + 'keras_unet_model_weights.h5'
 
-    model_json_filename = model_files_root + '/' + 'model_json_unet_True_True_dsc_True_1_True.json'
+    model_json_filename = model_files_root + '/' + 'keras_model.json'
 
     self.model = build_model(training_params,
                              model_weights_filename,
