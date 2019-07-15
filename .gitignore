@@ -63,10 +63,6 @@ target/
 # Numpy data
 *.npy
 
-# Ignore saved models
-*.h5
-*.hdf5
-
 # Ignore Slicer files
 SlicerCropping/
 
