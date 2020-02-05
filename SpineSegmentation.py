@@ -1,4 +1,5 @@
 import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import unittest
 import SimpleITK as sitk
 import sitkUtils
@@ -19,6 +20,24 @@ from SegUtils.Utils import build_model
 #
 # SpineSegmentation
 #
+
+vert_encode = {
+  'T6': 1,
+  'T7': 2,
+  'T8': 3,
+  'T9': 4,
+  'T10': 5,
+  'T11': 6,
+  'T12': 7,
+
+  'L1': 8,
+  'L2': 9,
+  'L3': 10,
+  'L4': 11,
+  'L5': 12}
+
+vert_list = ['T6', 'T7', 'T8', 'T9', 'T10', 'T11', 'T12',
+             'L1', 'L2', 'L3', 'L4', 'L5']
 
 class SpineSegmentation(ScriptedLoadableModule):
   """Uses ScriptedLoadableModule base class, available at:
@@ -46,7 +65,7 @@ and Steve Pieper, Isomics, Inc. and was partially funded by NIH grant 3P41RR0132
 #
 # SpineSegmentationWidget
 #
-
+    self.segVolumeNode = None
 class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
   """Uses ScriptedLoadableModuleWidget base class, available at:
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
@@ -61,9 +80,24 @@ class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
     #
     # Parameters Area
     #
+
+    # self.segVolumeTotalNode = slicer.vtkMRMLModelHierarchyNode()
+    # self.segVolumeTotalNode.SetName('segVolumeTotalNode')
+    # self.segVolumeTotalNode.SetSingletonTag('segVolumeTotalNode')
+    # # self.segVolumeTotalNode.HideFromEditorsOn()
+    # slicer.mrmlScene.AddNode(self.segVolumeTotalNode)
+
+    self.segVolumeTotalNode = []
+    self.segCombineVol = None
+
     inputCollapsibleButton = ctk.ctkCollapsibleButton()
     inputCollapsibleButton.text = "Input Volumes"
     self.layout.addWidget(inputCollapsibleButton)
+
+    self.pathText = qt.QLineEdit()
+    # self.__fixedShrinkFactor.setText("16, 16, 16")
+    self.pathText.setToolTip('Specify output path')
+    self.layout.addWidget(self.pathText)
 
     # Layout within the dummy collapsible button
     inputFormLayout = qt.QFormLayout(inputCollapsibleButton)
@@ -77,11 +111,8 @@ class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
     loadSegVolumeButton.connect('clicked()', self.loadVolume)
     inputFormLayout.addRow('Load segmentation volume', loadSegVolumeButton)
 
-    # TODO Add functionality so that if the segmentation is NOT imported as a label map, it is converted to one immediately
 
-    #
     # input volume selector
-    #
     self.inputSelector = slicer.qMRMLNodeComboBox()
     self.inputSelector.nodeTypes = ["vtkMRMLScalarVolumeNode"]
     self.inputSelector.selectNodeUponCreation = True
@@ -111,13 +142,11 @@ class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
     inputFormLayout.addRow("Segmentation Volume: ", self.segmentationSelector)
 
 
-    # TODO Add a save resampled volume
 
 
     cropCollapsibleButton = ctk.ctkCollapsibleButton()
     cropCollapsibleButton.text = "Select Vertebrae"
     self.layout.addWidget(cropCollapsibleButton)
-
     # Layout within the dummy collapsible button
     cropFormLayout = qt.QFormLayout(cropCollapsibleButton)
 
@@ -128,42 +157,20 @@ class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
     self.markerTableSelector.selectNodeUponCreation = False
     self.markerTableSelector.addEnabled = True
     self.markerTableSelector.removeEnabled = True
-    self.markerTableSelector.noneEnabled = False
-    self.markerTableSelector.renameEnabled = True
+    self.markerTableSelector.noneEnabled = True
+    self.markerTableSelector.renameEnabled = False
     markerTable.setMRMLScene(slicer.mrmlScene)
     markerTable.setCurrentNode(slicer.mrmlScene.GetNodeByID(slicer.modules.markups.logic().AddNewFiducialNode()))
     markerTable.show()
     cropFormLayout.addWidget(markerTable)
 
-
-
-
-
-    # # crop output volume selector
-    # self.cropOutputSelector = slicer.qMRMLNodeComboBox()
-    # self.cropOutputSelector.nodeTypes = ['vtkMRMLScalarVolumeNode']
-    # self.cropOutputSelector.toolTip = "Crop volumes for vertebrae levels"
-    # self.cropOutputSelector.setMRMLScene(slicer.mrmlScene)
-    # self.cropOutputSelector.renameEnabled = True
-    # self.cropOutputSelector.addEnabled = True
-    # self.cropOutputSelector.noneEnabled = True
-    # self.cropOutputSelector.selectNodeUponCreation = True
-    # self.cropOutputSelector.noneDisplay = 'Define name for cropped volume'
-    # self.cropOutputSelector.removeEnabled = True
-    # self.cropOutputSelector.showHidden = True
-    #
-    #
-    # cropFormLayout.addRow("Output Crop Volume: ", self.cropOutputSelector)
-    #
-    #
-    # # crop button
-    # cropButton = qt.QPushButton("Crop Vertebrae")
-    # cropButton.connect("clicked(bool)", self.onCropButton)
-    # cropFormLayout.addRow("Crop Vertebrae", cropButton)
-
+    font = qt.QFont()
+    font.setBold(True)
 
     # Segment vertebrae button
+
     self.segmentationButton = qt.QPushButton('Segment Vertebrae')
+    self.segmentationButton.setFont(font)
     self.segmentationButton.toolTip = 'Segment the selected vertebrae'
     self.segmentationButton.enabled = False
 
@@ -175,11 +182,138 @@ class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
     self.layout.addWidget(self.segmentationButton)
 
 
+
+
+
+    # Combine Segmentations
+    combineCollapsibleButton = ctk.ctkCollapsibleButton()
+    combineCollapsibleButton.text = "Combine Segmentations"
+    self.layout.addWidget(combineCollapsibleButton)
+
+    # Layout within the dummy collapsible button
+    combineFormLayout = qt.QFormLayout(combineCollapsibleButton)
+
+
+    # Section to assign labels to segmentations and combine segmentations to a single volume
+    self.L5SegSelector = DefaultSegSelect()
+    self.L5SegSelector.setToolTip("Select L5 Segmentation")
+    combineFormLayout.addRow("L5: ", self.L5SegSelector)
+    # self.L5SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel(self.L5SegSelector.currentNode()))
+    self.L5SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel)
+
+    self.L4SegSelector = DefaultSegSelect()
+    self.L4SegSelector.setToolTip("Select L4 Segmentation")
+    combineFormLayout.addRow("L4: ", self.L4SegSelector)
+    self.L4SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel)
+
+    self.L3SegSelector = DefaultSegSelect()
+    self.L3SegSelector.setToolTip("Select L3 Segmentation")
+    combineFormLayout.addRow("L3: ", self.L3SegSelector)
+    self.L3SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel)
+
+    self.L2SegSelector = DefaultSegSelect()
+    self.L2SegSelector.setToolTip("Select L2 Segmentation")
+    combineFormLayout.addRow("L2: ", self.L2SegSelector)
+    self.L2SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel)
+
+    self.L1SegSelector = DefaultSegSelect()
+    self.L1SegSelector.setToolTip("Select L1 Segmentation")
+    combineFormLayout.addRow("L1: ", self.L1SegSelector)
+    self.L1SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel)
+
+    self.T12SegSelector = DefaultSegSelect()
+    self.T12SegSelector.setToolTip("Select T12 Segmentation")
+    combineFormLayout.addRow("T12: ", self.T12SegSelector)
+    self.T12SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel)
+
+    self.T11SegSelector = DefaultSegSelect()
+    self.T11SegSelector.setToolTip("Select T11 Segmentation")
+    combineFormLayout.addRow("T11: ", self.T11SegSelector)
+    self.T11SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel)
+
+    self.T10SegSelector = DefaultSegSelect()
+    self.T10SegSelector.setToolTip("Select T10 Segmentation")
+    combineFormLayout.addRow("T10: ", self.T10SegSelector)
+    self.T10SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel)
+
+    self.T9SegSelector = DefaultSegSelect()
+    self.T9SegSelector.setToolTip("Select T9 Segmentation")
+    combineFormLayout.addRow("T9: ", self.T9SegSelector)
+    self.T9SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel)
+
+    self.T8SegSelector = DefaultSegSelect()
+    self.T8SegSelector.setToolTip("Select T8 Segmentation")
+    combineFormLayout.addRow("T8: ", self.T8SegSelector)
+    self.T8SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel)
+
+    self.T7SegSelector = DefaultSegSelect()
+    self.T7SegSelector.setToolTip("Select T7 Segmentation")
+    combineFormLayout.addRow("T7: ", self.T7SegSelector)
+    self.T7SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel)
+
+    self.T6SegSelector = DefaultSegSelect()
+    self.T6SegSelector.setToolTip("Select T6 Segmentation")
+    combineFormLayout.addRow("T6: ", self.T6SegSelector)
+    self.T6SegSelector.connect("currentNodeChanged(vtkMRMLNode*)", self.displayLabel)
+
+    self.SegSelectList = [self.L5SegSelector,
+                          self.L4SegSelector,
+                          self.L3SegSelector,
+                          self.L2SegSelector,
+                          self.L1SegSelector,
+
+                          self.T12SegSelector,
+                          self.T11SegSelector,
+                          self.T10SegSelector,
+                          self.T9SegSelector,
+                          self.T8SegSelector,
+                          self.T7SegSelector,
+                          self.T6SegSelector,
+                          ]
+
+    # Segmentation button connections
+    self.combineSegButton = qt.QPushButton('Combine Segmentations')
+    self.combineSegButton.toolTip = 'Combine Segmented Vertebrae'
+    self.combineSegButton.connect('clicked(bool)', self.onCombineSegButton)
+    self.combineSegButton.setFont(font)
+    combineFormLayout.addRow(self.combineSegButton)
+
+
+
+
+
+    # Reset segmentations and fiducial markers
+    self.resetSegButton = qt.QPushButton('Reset Segmentation and Markers')
+    self.resetSegButton.toolTip = "Reset fiducial markers and individual vertebrae segmentations"
+    self.resetSegButton.setFont(font)
+    self.resetSegButton.connect('clicked(bool)', self.onResetSegButton)
+    self.layout.addWidget(self.resetSegButton)
+
+
+
+
+    # Save segmentation button
+    self.saveButton = qt.QPushButton('Save')
+    self.saveButton.toolTip = "Save segmentation"
+    self.saveButton.setFont(font)
+    self.saveButton.connect('clicked(bool)', self.onSaveButton)
+    combineFormLayout.addRow(self.saveButton)
+
+
+
     # Add vertical spacer
     self.layout.addStretch(1)
 
     # Refresh Apply button state
     self.onSelect()
+
+  def displayLabel(self, seg):
+    # seg = self.L5SegSelector.currentNode()
+
+    # seg =
+
+    slicer.util.setSliceViewerLayers(label=seg, labelOpacity=1)
+
 
   def cleanup(self):
     pass
@@ -187,10 +321,30 @@ class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
   def onSelect(self):
     self.segmentationButton.enabled = self.inputSelector.currentNode() and self.markerTableSelector.currentNode()
 
+  def onResetSegButton(self):
+
+    for segNode in self.segVolumeTotalNode:
+      slicer.mrmlScene.RemoveNode(segNode)
+
+    self.segVolumeTotalNode = []
+
+    individualSeg = slicer.mrmlScene.GetNodesByName('segPrediction')
+    num_of_seg = individualSeg.GetNumberOfItems()
+
+    for idx in range(num_of_seg):
+      slicer.mrmlScene.RemoveNode(individualSeg.GetItemAsObject(idx))
+
 
   def onSegmentButton(self):
     logic = SpineSegmentationLogic()
-    logic.run(self.inputSelector.currentNode(), self.markerTableSelector.currentNode())
+    self.segVolumeTotalNode = logic.run(self.inputSelector.currentNode(), self.markerTableSelector.currentNode(),
+                                        self.segVolumeTotalNode)
+
+
+
+  def onCombineSegButton(self):
+    logic = CombineSegmentationLogic()
+    self.segCombineVol = logic.run(self.SegSelectList, self.inputSelector.currentNode())
 
 
   def loadVolume(self):
@@ -206,6 +360,25 @@ class SpineSegmentationWidget(ScriptedLoadableModuleWidget):
     interactionNode.SetPlaceModePersistence(placeModePersistence)
     # mode 1 is Place, can also be accessed via slicer.vtkMRMLInteractionNode().Place
     interactionNode.SetCurrentInteractionMode(1)
+
+
+  def onSaveButton(self):
+    # slicer.util.openSaveDataDialog()
+
+    seg_filename = self.segCombineVol.GetName()
+
+    save_dir = self.pathText.text
+
+    if save_dir == '':
+      print('No path has been entered')
+      return
+
+    if os.path.exists(save_dir) is False:
+      print('Path entered does not exist. Please enter a proper path.')
+      return
+
+    slicer.util.saveNode(self.segCombineVol, save_dir + '/' + seg_filename + '.nii.gz')
+
 
 # SpineSegmentationLogic
 #
@@ -224,7 +397,7 @@ class SpineSegmentationLogic(ScriptedLoadableModuleLogic):
   def onClick(self):
     pass
 
-  def run(self, inputVolume, fiducialMarker):
+  def run(self, inputVolume, fiducialMarker, segVolumeTotalNode):
     """
     Run the actual algorithm
     """
@@ -239,6 +412,9 @@ class SpineSegmentationLogic(ScriptedLoadableModuleLogic):
 
     fiducial_coords_world_hold = [0, 0, 0, 0]
     numFids = fiducialMarker.GetNumberOfFiducials()
+
+    self.build_model()
+
 
     for idx in range(numFids):
 
@@ -314,16 +490,33 @@ class SpineSegmentationLogic(ScriptedLoadableModuleLogic):
       y_pred_sitk_full_size = resample_back.Execute(y_pred_sitk)
 
 
-      #self.seg_pred = sitkUtils.PushVolumeToSlicer(y_pred_sitk)
+      segVolumeNode = sitkUtils.PushVolumeToSlicer(y_pred_sitk_full_size,
+                                                   name='segPrediction',
+                                                   className='vtkMRMLLabelMapVolumeNode')
 
-      self.segVolumeNode = sitkUtils.PushVolumeToSlicer(y_pred_sitk_full_size,
-                                                        name='segPrediction',
-                                                        className='vtkMRMLLabelMapVolumeNode')
+      # sitkUtils.PushVolumeToSlicer(y_pred_sitk_full_size, targetNode=segVolumeNode)
+
+      segVolumeTotalNode.append(segVolumeNode)
+
+      slicer.util.setSliceViewerLayers(label=segVolumeNode, labelOpacity=1)
 
 
-    return True
+    return segVolumeTotalNode
 
   def segment_vertebrae(self, spine_data):
+    # spine_data[spine_data < -1024] = -1024
+    spine_data = (spine_data - spine_data.min()) / (spine_data.max() - spine_data.min()) * 255
+
+    x_data = np.expand_dims(np.expand_dims(spine_data, axis=0), axis=-1)
+
+    y_pred = self.model.predict_on_batch(x_data)
+
+    y_pred = np.where(y_pred > 0.5, 1, 0)[0, :, :, :, 0]
+
+    return y_pred
+
+
+  def build_model(self):
     hold = __file__
     hold2 = hold.split('/')
     model_files_root = ('/').join(hold2[:-1]) + '/SegUtils'
@@ -341,18 +534,6 @@ class SpineSegmentationLogic(ScriptedLoadableModuleLogic):
     self.model = build_model(training_params,
                              model_weights_filename,
                              model_json_filename)
-
-    # spine_data[spine_data < -1024] = -1024
-    spine_data = (spine_data - spine_data.min()) / (spine_data.max() - spine_data.min()) * 255
-
-    x_data = np.expand_dims(np.expand_dims(spine_data, axis=0), axis=-1)
-
-    y_pred = self.model.predict_on_batch(x_data)
-
-    y_pred = np.where(y_pred > 0.5, 1, 0)[0, :, :, :, 0]
-
-    return y_pred
-
 
 class SpineSegmentationTest(ScriptedLoadableModuleTest):
   """
@@ -401,6 +582,41 @@ class SpineSegmentationTest(ScriptedLoadableModuleTest):
     self.delayDisplay('Test passed!')
 
 
+class CombineSegmentationLogic(ScriptedLoadableModuleLogic):
+  def onClick(self):
+    pass
+
+  def run(self, SegSelectList, spineNode):
+    seg_encode_list = []
+
+    seg_full = None
+    for idx, seg_select in enumerate(SegSelectList):
+
+      seg_node = seg_select.currentNode()
+
+      if seg_node is None:
+        continue
+      seg_img = sitkUtils.PullVolumeFromSlicer(seg_node)
+
+      seg_img_encode = sitk.Multiply(seg_img, vert_encode[vert_list[idx]])
+
+      if seg_full is None:
+        seg_full = seg_img_encode
+
+      else:
+        seg_full = sitk.Add(seg_full, seg_img_encode)
+
+    seg_name = spineNode.GetName()
+
+    self.segCombineVol = sitkUtils.PushVolumeToSlicer(seg_full,
+                                                      name=seg_name + '_seg',
+                                                      className='vtkMRMLLabelMapVolumeNode')
+
+    slicer.util.setSliceViewerLayers(label=self.segCombineVol, labelOpacity=1)
+
+
+    return self.segCombineVol
+
 
 def dice_coef(y_true, y_pred):
     """This method calculates the dice coefficient between the true
@@ -441,3 +657,17 @@ def concurrency(y_true, y_pred):
     intersection = K.sum(y_true_f * y_pred_f)
 
     return ((intersection / K.sum(y_true_f)) + (intersection / K.sum(y_pred_f))) / 2.
+
+
+def DefaultSegSelect():
+  SegSelector = slicer.qMRMLNodeComboBox()
+  SegSelector.nodeTypes = ["vtkMRMLLabelMapVolumeNode"]
+  SegSelector.selectNodeUponCreation = False
+  SegSelector.addEnabled = False
+  SegSelector.removeEnabled = False
+  SegSelector.noneEnabled = True
+  SegSelector.showHidden = False
+  SegSelector.showChildNodeTypes = False
+  SegSelector.setMRMLScene(slicer.mrmlScene)
+
+  return SegSelector
